@@ -1,27 +1,33 @@
-from flask import Flask, request, Blueprint
+from flask import Flask, request
 import json
 import requests as axios
-from typing import List
+from typing import List, Optional
 import pandas as pd
+from pandas import DataFrame
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from imblearn.pipeline import make_pipeline as make_pipeline_imb
+from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import RandomOverSampler
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
 
 ACCESS_TOKEN = ""
-model = make_pipeline_imb(TfidfVectorizer(), RandomOverSampler(), MultinomialNB())
+model: Optional[Pipeline] = None
+dataset: Optional[DataFrame] = None
 
 @app.before_first_request
 def boot():
     global ACCESS_TOKEN
     global model
+    global dataset
 
-    dataset = pd.read_csv("databases/dataset.csv", header = 1)
+    vectorizer = TfidfVectorizer()
+    balancer = RandomOverSampler()
+    ml_layer = MultinomialNB()
+    model = make_pipeline_imb(vectorizer, balancer, ml_layer)
+    dataset = pd.read_csv("databases/dataset.csv")
     model.fit(dataset["content"], dataset["outcome"])
 
     with open("databases/access_token.json") as f:
@@ -93,7 +99,6 @@ def login_handler():
             if user["username"] == username and user["password"] == password:
                 json_response = {
                     "status": "OK",
-                    "page_names": user["page_names"],
                     "page_ids": user["page_ids"]
                 }
                 return json.dumps(json_response)
@@ -122,7 +127,6 @@ def register_handler():
         new_user = {
             "username": username,
             "password": password,
-            "page_names": [],
             "page_ids": []
         }
         new_users = users + [new_user]
@@ -136,10 +140,9 @@ def register_handler():
         return json.dumps(json_response)
 
 
-@app.route("/account/add_page", methods=["POST"])
+@app.route("/account/add_page_id", methods=["POST"])
 def add_page_id_handler():
     username = request.json["username"]
-    page_name = request.json["page_name"]
     page_id = request.json["page_id"]
     with open('databases/users.json', 'r') as f:
         content = f.read().replace('\n', '')
@@ -147,7 +150,6 @@ def add_page_id_handler():
         for user in (user for user in users if user["username"] == username):
             if not (any(True for pid in user["page_ids"] if pid == page_id)):
                 user["page_ids"] = user["page_ids"] + [page_id]
-                user["page_names"] = user["page_names"] + [page_name]
 
     with open('databases/users.json', 'w') as f:
         new_database = {
@@ -178,17 +180,22 @@ def list_feeds_handler(page_id):
         FacebookPost(
             identifier = post["id"],
             content = post["message"],
-            url = "",
+            url = get_value_by_key(post, "link"),
             comments = [make_facebook_comment(comment_obj) for comment_obj in post["comments"]["data"]]
         )
         for post in posts
         if get_value_by_key(post, "comments") is not None and get_value_by_key(post["comments"], "data") is not None
     ]
 
-    print(fb_posts)
-
     return json.dumps([post.to_json_object() for post in fb_posts])
 
 @app.route("/feedback", methods=["POST"])
 def feedback_hanlder():
-    return ""
+    global dataset
+    content = request.json["content"]
+    outcome = request.json["outcome"]
+    new_column = pd.DataFrame([[content, outcome]], columns = ["content", "outcome"])
+    dataset = dataset.append(new_column, ignore_index = True)
+    dataset.to_csv("databases/dataset.csv", index = False)
+    model.fit(dataset["content"], dataset["outcome"])
+    return "success"
