@@ -174,16 +174,21 @@ def list_feeds_handler(page_id):
 
     content = axios.get(f"https://graph.facebook.com/{page_id}/feed?access_token={ACCESS_TOKEN}").json()
 
-    print(content)
-
     posts = [post for post in content["data"] if get_value_by_key(post, "message") is not None]
+
+    def get_comments_by_post_id(post_id: str) -> List[FacebookComment]:
+        cmt_content = axios.get(f"https://graph.facebook.com/{post_id}/comments?access_token={ACCESS_TOKEN}").json()
+        if get_value_by_key(cmt_content, "data") is None:
+            return []
+        else:
+            return [FacebookComment(identifier = obj["id"], message = obj["message"]) for obj in cmt_content["data"]]
 
     fb_posts = [
         FacebookPost(
             identifier = post["id"],
             content = post["message"],
             url = get_value_by_key(post, "link"),
-            comments = [] if get_value_by_key(post, "comments") is not None else [make_facebook_comment(comment_obj) for comment_obj in post["comments"]["data"]]
+            comments = get_comments_by_post_id(post["id"])
         )
         for post in posts
     ]
