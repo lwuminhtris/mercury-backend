@@ -1,3 +1,5 @@
+import asyncio
+
 from flask import Flask, request
 import json
 import requests as axios
@@ -10,6 +12,8 @@ from sklearn.naive_bayes import MultinomialNB
 from imblearn.pipeline import make_pipeline as make_pipeline_imb
 from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import RandomOverSampler
+import aiohttp
+import ssl
 
 app = Flask(__name__)
 
@@ -176,19 +180,13 @@ def add_page_id_handler():
 
 @app.route("/page/<string:page_id>/feeds", methods=["GET"])
 def list_feeds_handler(page_id):
-    def make_facebook_comment(obj) -> FacebookComment:
-        print(obj["message"])
-        return FacebookComment(
-            identifier = obj["id"],
-            message = obj["message"],
-        )
-
     content = axios.get(f"https://graph.facebook.com/{page_id}/feed?access_token={ACCESS_TOKEN}").json()
 
     posts = [post for post in content["data"] if get_value_by_key(post, "message") is not None]
 
     def get_comments_by_post_id(post_id: str) -> List[FacebookComment]:
         cmt_content = axios.get(f"https://graph.facebook.com/{post_id}/comments?access_token={ACCESS_TOKEN}").json()
+        print(cmt_content)
         if get_value_by_key(cmt_content, "data") is None:
             return []
         else:
@@ -207,6 +205,37 @@ def list_feeds_handler(page_id):
     ]
 
     return json.dumps([post.to_json_object() for post in fb_posts])
+
+@app.route("/async/page/<string:page_id>/feeds", methods=["GET"])
+async def async_list_feeds_handler(page_id):
+    content = axios.get(f"https://graph.facebook.com/{page_id}/feed?access_token={ACCESS_TOKEN}").json()
+
+    posts = [post for post in content["data"] if get_value_by_key(post, "message") is not None]
+
+    async def get_comments_by_post_id(post_id: str, session: aiohttp.ClientSession) -> List[FacebookComment]:
+        async with session.get(f"https://graph.facebook.com/{post_id}/comments?access_token={ACCESS_TOKEN}") as response:
+            cmt_content = await response.json()
+            if get_value_by_key(cmt_content, "data") is None:
+                return []
+            else:
+                result = [FacebookComment(identifier=obj["id"], message=obj["message"]) for obj in cmt_content["data"]]
+                print(result)
+                return result
+
+    async def make_post(post, session):
+        comments = await get_comments_by_post_id(post["id"], session)
+        return FacebookPost(
+            identifier=post["id"],
+            content=post["message"],
+            url=get_value_by_key(post, "link"),
+            comments=comments
+        )
+
+    async with aiohttp.ClientSession() as session:
+        fb_posts = await asyncio.gather(*[make_post(post, session) for post in posts])
+
+        return json.dumps([post.to_json_object() for post in fb_posts])
+
 
 @app.route("/feedback", methods=["POST"])
 def feedback_hanlder():
