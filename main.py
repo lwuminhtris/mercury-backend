@@ -99,7 +99,8 @@ def login_handler():
             if user["username"] == username and user["password"] == password:
                 json_response = {
                     "status": "OK",
-                    "pages": user["pages"]
+                    "page_ids": [page["page_id"] for page in user["pages"]],
+                    "page_names": [page["page_name"] for page in user["pages"]],
                 }
                 return json.dumps(json_response)
 
