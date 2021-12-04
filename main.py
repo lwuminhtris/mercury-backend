@@ -99,7 +99,7 @@ def login_handler():
             if user["username"] == username and user["password"] == password:
                 json_response = {
                     "status": "OK",
-                    "page_ids": user["page_ids"]
+                    "pages": user["pages"]
                 }
                 return json.dumps(json_response)
 
@@ -127,7 +127,7 @@ def register_handler():
         new_user = {
             "username": username,
             "password": password,
-            "page_ids": []
+            "pages": []
         }
         new_users = users + [new_user]
         new_database = {
@@ -140,16 +140,26 @@ def register_handler():
         return json.dumps(json_response)
 
 
-@app.route("/account/add_page_id", methods=["POST"])
+@app.route("/account/add_page", methods=["POST"])
 def add_page_id_handler():
     username = request.json["username"]
     page_id = request.json["page_id"]
+    page_name = request.json["page_name"]
     with open('databases/users.json', 'r') as f:
         content = f.read().replace('\n', '')
         users = json.loads(content)['users']
         for user in (user for user in users if user["username"] == username):
-            if not (any(True for pid in user["page_ids"] if pid == page_id)):
-                user["page_ids"] = user["page_ids"] + [page_id]
+            exists = False
+            for page in user["pages"]:
+                if page["page_id"] == page_id:
+                    exists = True
+                    break
+            if not exists:
+                new_page = {
+                    "page_id": page_id,
+                    "page_name": page_name
+                }
+                user["pages"] = user["pages"] + [new_page]
 
     with open('databases/users.json', 'w') as f:
         new_database = {
@@ -181,7 +191,9 @@ def list_feeds_handler(page_id):
         if get_value_by_key(cmt_content, "data") is None:
             return []
         else:
-            return [FacebookComment(identifier = obj["id"], message = obj["message"]) for obj in cmt_content["data"]]
+            result = [FacebookComment(identifier = obj["id"], message = obj["message"]) for obj in cmt_content["data"]]
+            print(result)
+            return result
 
     fb_posts = [
         FacebookPost(
